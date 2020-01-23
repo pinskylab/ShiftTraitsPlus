@@ -86,7 +86,7 @@ datMerge$logoffspring.size = log(datMerge$offspring.size)
 datMerge$logfecundity = log(datMerge$fecundity)
 
 datMerge$obslat1abs = abs(datMerge$obslat1)
-datMerge$gamhlat1abs = datMerge$gamhlat1*sign(datMerge$obslat1) # predicted shift rate, 
+datMerge$gamhlat1abs = datMerge$gamhlat1*sign(datMerge$obslat1) # predicted shift rate, signed by whether in the direction of observed shift or not
 
 # Sample size by region
 table(datMerge$region)
@@ -120,13 +120,13 @@ vars = c('gamhlat1abs', 'fished3', 'habitat', 'biomass.b.lm', 'loglength.max', '
          'tsdur', 'extentlat'); yvar = 'logabs' # only complete vars for log(obslat1abs)
 vars = c('gamhlat1abs', 'fished3', 'habitat', 'biomass.b.lm', 'loglength.max', 'tl', 'loggrowth.coefficient', 'body.shape', 'fin.shape', 
          'logoffspring.size', 'spawning.type', 'logfecundity', 'age.maturity', 'logage.max', 'loglength.infinity', 'AR', 'range', 'tsdur', 
-         'extentlat'); yvar = 'logabs' # all vars for log(obslat1abs). This is slow to fit!
+         'extentlat'); yvar = 'logabs' # all vars for log(obslat1abs). This is very slow and memory intensive to fit!
 
 vars = c('gamhlat1', 'fished3', 'habitat', 'biomass.b.lm', 'loglength.max', 'tl', 'body.shape', 'fin.shape', 
          'tsdur', 'extentlat'); yvar = 'raw' # only complete vars for obslat1
 vars = c('gamhlat1', 'fished3', 'habitat', 'biomass.b.lm', 'loglength.max', 'tl', 'loggrowth.coefficient', 'body.shape', 'fin.shape', 
          'logoffspring.size', 'spawning.type', 'logfecundity', 'age.maturity', 'logage.max', 'loglength.infinity', 'AR', 'range', 'tsdur', 
-         'extentlat'); yvar = 'logabs' # all vars for obslat1
+         'extentlat'); yvar = 'logabs' # all vars for obslat1. This is probably slow to fit!
 
 
 # Trim to complete cases
