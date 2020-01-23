@@ -1,2 +1,2 @@
 # ShiftTraitsPlus
-Comparing species traits to observed shifts in geographic distribution. Data from Pinsky et al. 2013 plus more.
+Comparing species traits to observed shifts in geographic distribution. Data from Pinsky et al. 2013 Science plus new fish traits from Beukhof et al. 2019 (https://doi.org/10.1594/PANGAEA.900866)
