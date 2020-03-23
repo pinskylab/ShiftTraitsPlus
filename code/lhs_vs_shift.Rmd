@@ -1,0 +1,160 @@
+---
+title: "Life History Strategies vs. observed shifts in species geographic ranges"
+output: 
+    github_document: default # for displaying on github
+    html_notebook: default
+---
+    
+```{r setup}
+require(visreg) # for partial residuals
+require(AICcmodavg) # for AICcs
+require(dplyr)
+source('lm.aic.all.r')
+
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file()) # tell RStudio to use project root directory as the root for this notebook. Needed since we are storing code in a separate directory.
+
+```
+
+# Multiple Linear Regression of Life History Strategies vs. observed shifts in species geographic ranges ##
+### Only fish
+
+Load data
+```{r load data}
+directionlh = read.csv('data/directionlh.csv', row.names=1) # data from Pinsky et al. 2013 (shifts and some traits)
+lhs = read.csv('data/sp_LHS.csv',header = T, sep = ";", row.names = NULL) # Life History Strategy axes from Laurene Pecuchet
+```
+
+Merge data for fishes
+```{r prep directionlh to merge data}
+# First remove invertebrates
+directionlh<-directionlh[-c(which(directionlh$fishinvert==FALSE)),]
+
+# Fix some species names in directionlh to match names in lhs
+directionlh$species <- as.character(directionlh$species) # first change to character so that we can edit
+directionlh$genus <- as.character(directionlh$genus)
+directionlh$sciname <- as.character(directionlh$sciname)
+inds <- directionlh$genus == 'Theragra' & directionlh$species == 'chalcogramma'
+directionlh$genus[inds] <- 'Gadus'
+directionlh$species[inds] <- 'chalcogrammus'
+directionlh$sciname[inds] <- 'Gadus chalcogrammus'
+
+inds <- directionlh$genus == 'Clupea' & directionlh$species == 'pallasii'
+directionlh$species[inds] <- 'pallasii pallasii'
+directionlh$sciname[inds] <- 'Clupea pallasii pallasii'
+
+
+# check LHS scientific names before merging
+MatchRecLHS <- match(unique(sort(directionlh$sciname)), unique(sort(lhs$taxon)))
+print('Records that do not match')
+unique(sort(directionlh$sciname))[is.na(MatchRecLHS)] # 10 non-matching records, most as Genus level
+```
+
+```{r prep lhs}
+# create LHS genus-level axes
+lhs$genus <- vapply(strsplit(as.character(lhs$taxon), " "), `[`, 1, FUN.VALUE=character(1)) # genus name in lower case
+
+lhsgen <- aggregate(list(slow_fast = lhs$slow_fast, Equilibrium = lhs$Equilibrium, Periodic = lhs$Periodic, Opportunistic = lhs$Opportunistic), 
+                    by = list(taxon = paste0(lhs$genus, ' spp.')), FUN = mean, na.rm= TRUE) # calc average by genus
+lhs <- rbind(lhs[, names(lhsgen)], lhsgen) # append to species values
+MatchRecLHS <- match(unique(sort(directionlh$sciname)), unique(sort(lhs$taxon))) # recheck matching names
+unique(sort(directionlh$sciname))[is.na(MatchRecLHS)] # all match now
+```
+
+```{r merge}
+# merge LHS with shift data
+datMerge<-merge(directionlh, lhs, by.x = 'sciname', by.y = 'taxon')
+nrow(directionlh) # 259
+nrow(datMerge) # 259
+
+datMerge[is.na(datMerge$Equilibrium), c('sciname', 'Equilibrium')] # 10 species without LHS data
+```
+
+
+# Statistical models
+```{r stats}
+# Add absolute rate of shift
+datMerge$obslat1abs = abs(datMerge$obslat1)
+datMerge$gamhlat1abs = datMerge$gamhlat1*sign(datMerge$obslat1) # predicted shift rate, signed by whether in the direction of observed shift or not
+```
+
+Sample size by region
+```{r sample size by region}
+table(datMerge$region)
+```
+
+Sample size by factor (ordered by decreasing size)
+```{r sample size}
+sum(!is.na(datMerge$obslat1)) # 259 (up from 199 fishes in Pinsky et al. 2013)
+with(datMerge, sum(!is.na(obslat1) & !is.na(slow_fast))) # 259
+with(datMerge, sum(!is.na(obslat1) & !is.na(Equilibrium))) # 244. Missing LHS data for some species
+with(datMerge, sum(!is.na(obslat1) & !is.na(Periodic))) # 244
+with(datMerge, sum(!is.na(obslat1) & !is.na(Opportunistic))) # 244
+```
+
+Set up which variables to include
+```{r set up mods}
+vars <- list(logabs_slowfast = c('gamhlat1abs', 'slow_fast', 'tsdur', 'extentlat'), # slow_fast for log absolute rate of shift
+    logabs_lhs = c('gamhlat1abs', 'Equilibrium', 'Opportunistic', 'Periodic', 'tsdur', 'extentlat'), # LHS for log abs
+    raw_slowfast = c('gamhlat1', 'slow_fast', 'tsdur', 'extentlat'), # slow_fast for raw rate & direction of shift
+    raw_lhs = c('gamhlat1', 'Equilibrium', 'Opportunistic', 'Periodic', 'tsdur', 'extentlat')) # LHS for raw
+
+yvars <- c(logabs_slowfast = 'logabs', logabs_lhs = 'logabs', raw_slowfast = 'raw', raw_lhs = 'raw')
+```
+
+Cycle through the possible models and print the results
+```{r fit models}
+for(iter in 1:length(yvars)){
+    cat('\n########################\n') # a crude way to delineate the breaks between the four options we run
+    cat(paste('Model type:', names(vars)[iter], '\n'))
+        
+    # Trim to complete cases
+    i = complete.cases(datMerge[,vars[[iter]][!grepl(':', vars[[iter]])]])
+    cat(paste('Complete cases:', sum(i), '\n'))
+    
+    
+    cat('Colinearity?\n')
+    r2 = matrix(NA, nrow=length(vars[[iter]]), ncol=length(vars[[iter]]))
+    colnames(r2) = vars[[iter]]; rownames(r2) = vars[[iter]]
+    for(k in 1:(length(vars[[iter]])-1)){
+        for(j in (k+1):length(vars[[iter]])){
+            r2[k,j] = round(cor(as.numeric(datMerge[[vars[[iter]][k]]][i]), as.numeric(datMerge[[vars[[iter]][j]]][i]))^2,2)
+        }
+    }
+    print(r2)	
+    
+    # All subsets lm		
+    if(yvars[iter]=='logabs') mod = lm.aic.all(y=log(datMerge$obslat1abs[i]), x=datMerge[i,vars[[iter]]], models='all') # test all subsets with log(abs shift)
+    if(yvars[iter]=='raw') mod = lm.aic.all(y=datMerge$obslat1[i], x=datMerge[i,vars[[iter]]], models='all') # test all subsets with raw shift value
+    aic = numeric(length(mod))
+    for(i in 1:length(mod)) aic[i] = AIC(mod[[i]])
+    aicc = numeric(length(mod)) # small-sample version
+    for(i in 1:length(mod)) aicc[i] = AICc(mod[[i]])
+    r2 = numeric(length(mod))
+    for(i in 1:length(mod)) r2[i] = summary(mod[[i]])$r.squared
+    
+    modord = order(aic) # order from best to worst
+    
+    # AIC model weights
+    aicd = aic - min(aic) # delta aic
+    aicw = exp(-aicd/2)/sum(exp(-aicd/2), na.rm=TRUE) # AIC weights: Burnham & Anderson p. 75 section 2.9.1
+    
+    # term weights
+    cat('\n# Relative Variable Importance (RVI)\n')
+    for(i in 1:length(vars[[iter]])){
+        cat(paste(format(vars[[iter]][i], width=17), signif(sum(aicw[grep(vars[[iter]][i], names(mod))], na.rm=TRUE), 3), '\n'))
+    }
+    
+    # full model
+    cat('\n# Full model\n')
+    print(summary(mod[[1]]))
+    
+    # best model
+    cat('\n# Best model\n')
+    print(summary(mod[[modord[1]]]))
+    cat(paste('\nAIC:', aic[modord[1]]))
+    cat(paste('\nAIC weight:', aicw[modord[1]], '\n\n'))
+    #par(mfrow=c(1,3)); visreg(mod[[modord[1]]], trans=exp, type='conditional')
+    
+}
+    
+```
